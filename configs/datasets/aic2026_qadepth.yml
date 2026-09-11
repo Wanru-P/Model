@@ -1,0 +1,28 @@
+metric: COCO
+num_classes: 12
+
+TrainDataset:
+  name: Mutisprctral_COCODataSet
+  dataset_dir: .
+  vis_image_dir: data/AIC2026_Train_2000/visible
+  ir_image_dir: data/AIC2026_Train_2000/infrared
+  depth_image_dir: data/AIC2026_Train_2000/depth
+  # Deterministic group-aware + class-aware split. The original split remains
+  # under annotations/ for reproducibility and direct A/B comparison.
+  anno_path: dataset/aic2026_qadepth/annotations_stratified_candidate/train.json
+  data_fields: ['image', 'gt_bbox', 'gt_class', 'is_crowd']
+  allow_empty: true
+
+EvalDataset:
+  name: Mutisprctral_COCODataSet
+  dataset_dir: .
+  vis_image_dir: data/AIC2026_Train_2000/visible
+  ir_image_dir: data/AIC2026_Train_2000/infrared
+  depth_image_dir: data/AIC2026_Train_2000/depth
+  anno_path: dataset/aic2026_qadepth/annotations_stratified_candidate/val.json
+  allow_empty: true
+
+TestDataset:
+  name: Multi_ImageFolder
+  anno_path: dataset/aic2026_qadepth/annotations/label_list.txt
+  dataset_dir: .

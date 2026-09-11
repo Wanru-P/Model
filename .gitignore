@@ -1,0 +1,22 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.idea/
+.vscode/
+
+# Large/local experiment assets must not be committed to ordinary GitHub.
+data/AIC2026_Train_2000/visible/*
+data/AIC2026_Train_2000/infrared/*
+data/AIC2026_Train_2000/depth/*
+weights/*.pdparams
+output/
+*.log
+bbox.json
+
+# Keep empty upload targets visible in a fresh clone.
+!data/AIC2026_Train_2000/visible/.gitkeep
+!data/AIC2026_Train_2000/infrared/.gitkeep
+!data/AIC2026_Train_2000/depth/.gitkeep
+!weights/.gitkeep

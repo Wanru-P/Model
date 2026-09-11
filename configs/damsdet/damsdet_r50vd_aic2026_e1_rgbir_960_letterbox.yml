@@ -1,0 +1,42 @@
+_BASE_: [
+  '../datasets/aic2026_qadepth.yml',
+  '../runtime_aic2026.yml',
+  '_base_/optimizer.yml',
+  '_base_/damsdet_r50vd.yml',
+  '_base_/damsdet_e1_reader_960_letterbox.yml',
+]
+
+# E1: the same full, official RGB+IR DAMSDet used by E0. Depth is decoded by
+# the shared data path for an otherwise identical experiment, but the model has
+# no DepthEncoder or QualityAwareDepthGating modules and ignores those tensors.
+save_dir: output/E1_RGBIR_DAMSDet_960_letterbox
+output_eval: output/E1_RGBIR_DAMSDet_960_letterbox/eval_latest
+pretrain_weights: weights/coco_pretrain_weights.pdparams
+classwise: true
+seed: 2026
+
+find_unused_parameters: True
+log_iter: 20
+snapshot_epoch: 8
+epoch: 72
+
+LearningRate:
+  base_lr: 0.0001
+  schedulers:
+  - !PiecewiseDecay
+    gamma: 0.1
+    milestones: [48, 64]
+    use_warmup: true
+  - !LinearWarmup
+    start_factor: 0.001
+    steps: 1000
+
+# The network architecture is unchanged. Only its configured evaluation canvas
+# changes from 640x640 to 960x960.
+eval_size: [960, 960]
+
+# Letterbox targets are normalized against the padded square canvas. Padding is
+# placed on the right/bottom, so decoding against pad_shape maps predictions
+# directly back to original-image coordinates without an offset correction.
+DETRPostProcess:
+  bbox_decode_type: pad

@@ -1,0 +1,12 @@
+person
+boat
+animal
+seat
+sign
+bicycle
+car
+ball
+light
+garbage_can
+uav
+tricycle
