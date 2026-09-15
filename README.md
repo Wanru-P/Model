@@ -1,4 +1,4 @@
-# AIC2026 E1：RGB+IR DAMSDet 960 Letterbox
+#  E1：RGB+IR DAMSDet 960 Letterbox
 
 本目录是可提交到 GitHub、并在 Ubuntu 22.04 云 GPU 上复现实验 E1 的独立工程。
 
