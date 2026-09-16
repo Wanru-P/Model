@@ -391,6 +391,56 @@ def compare_train_losses(e1_model, e6_model, batch):
     return result
 
 
+def dtype_name(value):
+    return str(value.dtype).lower()
+
+
+def check_origin_batch_contract(batch):
+    specifications = {
+        'origin_gt_bbox': (4, ('float32', )),
+        'origin_gt_class': (1, ('int32', 'int64')),
+        'pad_origin_gt_mask': (1, ('float32', ))}
+    result = {}
+    for name, (last_dimension, allowed_dtypes) in specifications.items():
+        value = batch[name]
+        if isinstance(value, list):
+            raise AssertionError('{} remained a Python list.'.format(name))
+        ndim = int(value.ndim)
+        shape = [int(item) for item in value.shape]
+        dtype = dtype_name(value)
+        if ndim != 3 or shape[0] != 1 or shape[-1] != last_dimension:
+            raise AssertionError({
+                'name': name, 'ndim': ndim, 'shape': shape})
+        if not any(dtype.endswith(item) for item in allowed_dtypes):
+            raise AssertionError({
+                'name': name, 'dtype': dtype,
+                'allowed_dtypes': allowed_dtypes})
+        result[name] = {
+            'type': type(value).__name__,
+            'shape': shape,
+            'dtype': dtype}
+    count = result['origin_gt_bbox']['shape'][1]
+    if result['origin_gt_class']['shape'][1] != count or \
+            result['pad_origin_gt_mask']['shape'][1] != count:
+        raise AssertionError('Origin target batch dimensions disagree.')
+    return result
+
+
+def check_e1_batch_contract(batch):
+    result = {}
+    for name in ('gt_bbox', 'gt_class'):
+        value = batch[name]
+        if not isinstance(value, list):
+            raise AssertionError(
+                'Official origin stacking changed E1 {} semantics.'.format(name))
+        result[name] = {
+            'type': type(value).__name__,
+            'batch_items': len(value),
+            'item_shape': list(to_numpy(value[0]).shape),
+            'item_dtype': dtype_name(value[0])}
+    return result
+
+
 def check_gt_batch(batch):
     origin = first_array(batch['origin_gt_bbox']).reshape([-1, 4])
     dino = first_array(batch['gt_bbox']).reshape([-1, 4])
@@ -688,6 +738,8 @@ def run(args):
         'e6_disabled_no_aux': True,
         'strict_e1_checkpoint_load': True}
     regression_batch = next(iter(e1_train.loader))
+    result['checks']['e1_batch_contract'] = check_e1_batch_contract(
+        regression_batch)
     regression_batch['epoch_id'] = 0
     result['checks']['aux_disabled_regression'] = compare_train_losses(
         e1_train.model, e6_disabled.model, regression_batch)
@@ -711,6 +763,7 @@ def run(args):
     train_ir_handle = train_model.model.aux_o2m_head_ir.register_forward_post_hook(
         train_ir_calls)
     gt_checks = []
+    origin_batch_contracts = []
     positive_checks = []
     train_batches = []
     train_iterator = iter(train_model.loader)
@@ -731,6 +784,7 @@ def run(args):
             (class_ids & TINY_CLASS_IDS) - tiny_seen)
         if not should_test:
             continue
+        origin_batch_contracts.append(check_origin_batch_contract(batch))
         tiny_seen.update(class_ids & TINY_CLASS_IDS)
         train_batches.append(copy.deepcopy(batch))
         gt_checks.append(check_gt_batch(batch))
@@ -738,8 +792,14 @@ def run(args):
         train_model.model.clear_gradients()
         outputs = train_model.model(batch)
         if not all(finite(outputs[name]) for name in (
-                'dino_total', 'aux_vis_total', 'aux_ir_total')):
+                'loss', 'dino_total', 'aux_vis_total', 'aux_ir_total')):
             raise FloatingPointError('Non-finite loss in positive sanity check.')
+        if 'single_batch_forward' not in result['checks']:
+            result['checks']['single_batch_forward'] = {
+                'loss': scalar(outputs['loss']),
+                'aux_vis_total': scalar(outputs['aux_vis_total']),
+                'aux_ir_total': scalar(outputs['aux_ir_total']),
+                'all_finite': True}
         labels = labels_for_selection
         valid = mask_for_selection
         present = [CLASS_NAMES[int(item)] for item in labels[valid]]
@@ -767,6 +827,7 @@ def run(args):
                                 positive_checks[-1]['ir_positive'] == 0):
             raise AssertionError('GT batch has zero O2M positives.')
     result['checks']['gt_pipeline'] = gt_checks
+    result['checks']['origin_batch_contract'] = origin_batch_contracts
     result['checks']['positive_counts'] = positive_checks
     train_vis_handle.remove()
     train_ir_handle.remove()

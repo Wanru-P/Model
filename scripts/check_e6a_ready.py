@@ -96,7 +96,9 @@ def main():
         'e1_exact_equivalence', 'aux_disabled_regression', 'gt_pipeline',
         'assigner_transition', 'positive_counts', 'gradients',
         'tiny_overfit', 'smoke_100', 'eval_aux_calls',
-        'checkpoint_resume', 'empty_gt', 'coco_pretrain_parity'}
+        'checkpoint_resume', 'empty_gt', 'coco_pretrain_parity',
+        'origin_batch_contract', 'e1_batch_contract',
+        'single_batch_forward'}
     missing = sorted(required - set(acceptance.get('checks', {})))
     if missing:
         raise AssertionError('Acceptance report is missing: {}'.format(missing))

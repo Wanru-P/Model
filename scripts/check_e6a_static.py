@@ -34,6 +34,7 @@ def main():
         encoding='utf-8')
     architecture = (ROOT / 'ppdet/modeling/architectures/damsdet.py').read_text(
         encoding='utf-8')
+    data_reader = (ROOT / 'ppdet/data/reader.py').read_text(encoding='utf-8')
     required_config = (
         'aux_o2m_weight: 1.0',
         'aux_o2m_head_vis: PPYOLOEHead',
@@ -52,6 +53,9 @@ def main():
                  'BboxXYXY2XYWH: {}', 'PadOriginGT: {}'):
         if text not in reader:
             raise AssertionError('E6a reader lacks: ' + text)
+    origin_stack = "if 'origin_' in k:\n                    tmp_data = np.stack(tmp_data, axis=0)"
+    if origin_stack not in data_reader:
+        raise AssertionError('Official origin target batch stacking is missing.')
     if 'detach()' in architecture[architecture.index('if self.training and self.aux_o2m_enabled:'):]:
         raise AssertionError('Auxiliary feature path must not detach.')
     main_head_create = architecture.index("detr_head = create(cfg['detr_head']")

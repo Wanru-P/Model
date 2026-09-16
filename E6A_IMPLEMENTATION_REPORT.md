@@ -1,6 +1,7 @@
 # E6a implementation report — Sol redo
 
-Current verdict: **NOT READY**. Dynamic acceptance has not been run.
+Current verdict: **NOT READY**. Targeted local dynamic regressions pass, but a
+complete cloud acceptance has not yet passed.
 
 ## A Git
 
@@ -38,6 +39,13 @@ Source: `PaddlePaddle/PaddleDetection` commit
 
 Project compatibility is limited to package registration, two isolated origin
 GT transforms, and optional dual-head wiring in DAMSDet.
+
+The fourth cloud acceptance exposed one omitted upstream RT-DETRv3 reader
+rule. With `collate_batch: false`, ordinary `gt_*` values intentionally remain
+lists, but upstream `BatchCompose` separately stacks keys containing
+`origin_`. The exact two-line upstream rule from the pinned commit was ported
+to `ppdet/data/reader.py`; no generic GT collation, head, assigner, loss,
+reader configuration, or training policy was changed.
 
 The E1-base Hungarian matcher file is unchanged byte-for-byte by Sol. The
 requested AMP stability behavior is therefore not reverted or otherwise
@@ -110,7 +118,29 @@ Pending cloud dynamic acceptance: E1 total, E6a total, VIS aux, IR aux.
 Implemented as geometry/resize/letterbox → `Multi_PreserveOriginGT` pixel XYXY
 copy → unchanged `Multi_NormalizeBox` → unchanged `BboxXYXY2XYWH` → DINO
 normalized CXCYWH. `PadOriginGT` pads only auxiliary tensors. Real-sample
-roundtrip evidence is pending.
+roundtrip evidence from the complete cloud acceptance is pending.
+
+The fourth cloud failure was caused by the missing RT-DETRv3 origin-target
+batch collation rule: padded NumPy arrays reached PPYOLOE/ATSS as Python lists,
+so ATSS failed at `gt_labels.ndim`. The pinned upstream rule now stacks only
+`origin_*` keys after batch transforms. A focused collation regression proves:
+
+- non-empty origin targets become `origin_gt_bbox [1,2,4] float32`,
+  `origin_gt_class [1,2,1] int32`, and
+  `pad_origin_gt_mask [1,2,1] float32`;
+- empty origin targets become `[1,0,4]`, `[1,0,1]`, and `[1,0,1]` with the
+  same dtypes;
+- ordinary E1 `gt_bbox` and `gt_class` remain lists.
+
+A real Paddle TrainReader run over available AIC samples produced E1
+`gt_bbox`/`gt_class` lists with item shapes `[6,4]`/`[6,1]` and E6a origin
+Tensors with shapes `[1,6,4]`, `[1,6,1]`, `[1,6,1]` and dtypes
+`float32`, `int32`, `float32`. One E6a train forward was finite
+(`loss=46.9637260`, `aux_vis_total=4.2179480`,
+`aux_ir_total=4.2179480`). Empty GT also passed directly through both
+auxiliary heads at epochs 0 and 30: both modalities returned finite
+`loss=loss_cls=0.1709560` with zero box/DFL/L1 losses. These local checks do
+not replace the required train1600 cloud acceptance.
 
 ## G E1 equivalence
 
@@ -158,4 +188,6 @@ mismatch evidence is pending.
 
 ## P Final verdict
 
-**NOT READY**
+**NOT READY**. The origin-GT batch contract is repaired and its focused local
+regressions pass. The verdict may advance only after the next complete cloud
+dynamic acceptance passes every required check.
