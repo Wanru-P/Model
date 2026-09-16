@@ -1839,13 +1839,12 @@ class Multi_Resize(BaseOperator):
 
     def apply_image(self, image, scale):
         im_scale_x, im_scale_y = scale
+        resize_w = int(image.shape[1] * im_scale_x + 0.5)
+        resize_h = int(image.shape[0] * im_scale_y + 0.5)
 
         return cv2.resize(
             image,
-            None,
-            None,
-            fx=im_scale_x,
-            fy=im_scale_y,
+            (resize_w, resize_h),
             interpolation=self.interp)
 
     @staticmethod
