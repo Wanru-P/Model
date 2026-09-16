@@ -49,6 +49,7 @@ __all__ = [
     'PadMaskBatch',
     'Gt2GFLTarget',
     'PadGT',
+    'PadOriginGT',
     'PadRGT',
 ]
 
@@ -1093,6 +1094,37 @@ class PadMaskBatch(BaseOperator):
 
 
 @register_op
+class PadOriginGT(BaseOperator):
+    """Pad only E6a pixel-space origin targets, leaving DINO GT untouched."""
+
+    def __init__(self, minimum_gtnum=0):
+        super(PadOriginGT, self).__init__()
+        self.minimum_gtnum = minimum_gtnum
+
+    def __call__(self, samples, context=None):
+        if not all('origin_gt_bbox' in sample and
+                   'origin_gt_class' in sample for sample in samples):
+            raise KeyError(
+                'PadOriginGT requires origin_gt_bbox and origin_gt_class.')
+        num_max_boxes = max(
+            self.minimum_gtnum,
+            max(len(sample['origin_gt_bbox']) for sample in samples))
+        for sample in samples:
+            num_gt = len(sample['origin_gt_bbox'])
+            bbox = np.zeros((num_max_boxes, 4), dtype=np.float32)
+            label = np.zeros((num_max_boxes, 1), dtype=np.int32)
+            mask = np.zeros((num_max_boxes, 1), dtype=np.float32)
+            if num_gt > 0:
+                bbox[:num_gt] = sample['origin_gt_bbox']
+                label[:num_gt] = sample['origin_gt_class']
+                mask[:num_gt] = 1.
+            sample['origin_gt_bbox'] = bbox
+            sample['origin_gt_class'] = label
+            sample['pad_origin_gt_mask'] = mask
+        return samples
+
+
+@register_op
 class PadGT(BaseOperator):
     """
     Pad 0 to `gt_class`, `gt_bbox`, `gt_score`...
@@ -1312,5 +1344,4 @@ class PadRGT(BaseOperator):
                                num_gt)
 
         return samples
-
 

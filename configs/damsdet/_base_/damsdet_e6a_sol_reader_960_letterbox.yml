@@ -1,0 +1,50 @@
+worker_num: 4
+
+# Identical to E1 except for preserving/padding the post-geometry pixel XYXY
+# targets consumed by the two training-only dense auxiliary heads.
+TrainReader:
+  sample_transforms:
+    - Multi_Decode: {min_valid_depth: 300.0, max_depth: 20000.0, log_depth: true}
+    - Multi_RandomCrop: {prob: 0.5, scaling: [0.7, 1.0], aspect_ratio: [0.75, 1.3333], thresholds: [0.0, 0.1, 0.3, 0.5], num_attempts: 30}
+    - Multi_RandomAffine: {prob: 0.5, degrees: 3.0, scale: [0.95, 1.05], translate: 0.02, min_bbox_size: 2.0, min_bbox_area_ratio: 0.2}
+    - Multi_RandomFlip: {prob: 0.5}
+    - Multi_RandomDepthInvalidation: {prob: 0.3, num_holes: [1, 4], area_ratio: [0.005, 0.03], aspect_ratio: [0.3, 3.0]}
+    - Multi_IndependentPhotometricDistort: {prob: 0.8, apply_prob: 0.5, rgb_brightness: 16.0, rgb_contrast: [0.85, 1.15], rgb_saturation: [0.85, 1.15], rgb_hue: 6.0, ir_brightness: 12.0, ir_contrast: [0.88, 1.12], ir_gamma: [0.9, 1.1]}
+    - Multi_RandomModalityDropout: {prob: 0.12, modality_weights: [0.25, 0.25, 0.50]}
+  batch_transforms:
+    - Multi_BatchRandomResize: {target_size: [864, 912, 960, 960, 960, 1008, 1056, 1104, 1152], random_size: True, random_interp: True, keep_ratio: True, pad_to_target: True, pad_mode: 0, return_pad_mask: True, fill_value: [123.675, 116.28, 103.53], fill_value_ir: [114.495, 114.495, 114.495]}
+    - Multi_NormalizeImage: {mean: [0., 0., 0.], std: [1., 1., 1.], is_scale: true, norm_type: none}
+    - Multi_PreserveOriginGT: {}
+    - Multi_NormalizeBox: {}
+    - BboxXYXY2XYWH: {}
+    - Multi_Permute: {}
+    - PadOriginGT: {}
+  batch_size: 1
+  shuffle: true
+  drop_last: true
+  collate_batch: false
+  use_shared_memory: false
+
+EvalReader:
+  sample_transforms:
+    - Multi_Decode: {min_valid_depth: 300.0, max_depth: 20000.0, log_depth: true}
+    - Multi_Resize: {target_size: [960, 960], keep_ratio: True, interp: 2}
+    - Multi_Pad_IRVIS: {size: [960, 960], pad_mode: 0, return_pad_mask: True, fill_value: [123.675, 116.28, 103.53], fill_value_ir: [114.495, 114.495, 114.495]}
+    - Multi_NormalizeImage: {mean: [0., 0., 0.], std: [1., 1., 1.], is_scale: true, norm_type: none}
+    - Multi_Permute: {}
+  batch_size: 1
+  shuffle: false
+  drop_last: false
+
+TestReader:
+  inputs_def:
+    image_shape: [3, 960, 960]
+  sample_transforms:
+    - Multi_Decode: {min_valid_depth: 300.0, max_depth: 20000.0, log_depth: true}
+    - Multi_Resize: {target_size: [960, 960], keep_ratio: True, interp: 2}
+    - Multi_Pad_IRVIS: {size: [960, 960], pad_mode: 0, return_pad_mask: True, fill_value: [123.675, 116.28, 103.53], fill_value_ir: [114.495, 114.495, 114.495]}
+    - Multi_NormalizeImage: {mean: [0., 0., 0.], std: [1., 1., 1.], is_scale: true, norm_type: none}
+    - Multi_Permute: {}
+  batch_size: 1
+  shuffle: false
+  drop_last: false

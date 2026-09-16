@@ -15,6 +15,7 @@
 
 from . import centernet_head
 from . import detr_head
+from . import ppyoloe_head
 
 
 
@@ -23,5 +24,5 @@ from . import detr_head
 
 from .centernet_head import *
 from .detr_head import *
-
+from .ppyoloe_head import *
 

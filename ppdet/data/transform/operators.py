@@ -3612,6 +3612,24 @@ class NormalizeBox(BaseOperator):
         return sample
 
 @register_op
+class Multi_PreserveOriginGT(BaseOperator):
+    """Copy synchronized post-geometry pixel-space GT for dense O2M heads."""
+
+    def __init__(self):
+        super(Multi_PreserveOriginGT, self).__init__()
+
+    def apply(self, sample, context=None):
+        if 'gt_bbox' not in sample or 'gt_class' not in sample:
+            raise KeyError(
+                'Multi_PreserveOriginGT requires gt_bbox and gt_class.')
+        sample['origin_gt_bbox'] = sample['gt_bbox'].astype(
+            np.float32, copy=True)
+        sample['origin_gt_class'] = sample['gt_class'].astype(
+            np.int32, copy=True)
+        return sample
+
+
+@register_op
 class Multi_NormalizeBox(BaseOperator):
     """Transform the bounding box's coornidates to [0,1]."""
 

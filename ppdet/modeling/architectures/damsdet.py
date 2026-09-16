@@ -37,6 +37,10 @@ class DAMSDet(BaseArch):
                  neck_ir=None,
                  depth_encoder=None,
                  depth_gating=None,
+                 aux_o2m_head_vis=None,
+                 aux_o2m_head_ir=None,
+                 aux_o2m_enabled=False,
+                 aux_o2m_weight=1.0,
                  post_process='DETRPostProcess',
                  with_mask=False,
                  exclude_post_process=False):
@@ -49,6 +53,14 @@ class DAMSDet(BaseArch):
         self.neck_ir = neck_ir
         self.depth_encoder = depth_encoder
         self.depth_gating = depth_gating
+        self.aux_o2m_head_vis = aux_o2m_head_vis
+        self.aux_o2m_head_ir = aux_o2m_head_ir
+        self.aux_o2m_enabled = bool(aux_o2m_enabled)
+        self.aux_o2m_weight = float(aux_o2m_weight)
+        if self.aux_o2m_enabled and (self.aux_o2m_head_vis is None or
+                                     self.aux_o2m_head_ir is None):
+            raise ValueError(
+                'E6a requires independent VIS and IR auxiliary heads.')
         self.post_process = post_process
         self.with_mask = with_mask
         self.exclude_post_process = exclude_post_process
@@ -75,6 +87,17 @@ class DAMSDet(BaseArch):
         kwargs = {'input_shape': backbone_vis.out_shape}
         neck_vis = create(cfg['neck_vis'], **kwargs) if cfg['neck_vis'] else None
         neck_ir = create(cfg['neck_ir'], **kwargs) if cfg['neck_ir'] else None
+        aux_o2m_enabled = bool(cfg.get('aux_o2m_enabled', False))
+        aux_o2m_head_vis = None
+        aux_o2m_head_ir = None
+        if aux_o2m_enabled:
+            if neck_vis is None or neck_ir is None:
+                raise ValueError(
+                    'E6a auxiliary heads require both HybridEncoders.')
+            aux_o2m_head_vis = create(
+                cfg['aux_o2m_head_vis'], input_shape=neck_vis.out_shape)
+            aux_o2m_head_ir = create(
+                cfg['aux_o2m_head_ir'], input_shape=neck_ir.out_shape)
 
         # transformer
         if neck_vis is not None:
@@ -96,7 +119,11 @@ class DAMSDet(BaseArch):
             "neck_vis": neck_vis,
             "neck_ir": neck_ir,
             "depth_encoder": depth_encoder,
-            "depth_gating": depth_gating
+            "depth_gating": depth_gating,
+            "aux_o2m_head_vis": aux_o2m_head_vis,
+            "aux_o2m_head_ir": aux_o2m_head_ir,
+            "aux_o2m_enabled": aux_o2m_enabled,
+            "aux_o2m_weight": cfg.get('aux_o2m_weight', 1.0)
         }
 
     def _forward(self):
@@ -124,6 +151,16 @@ class DAMSDet(BaseArch):
             vis_body_feats = self.neck_vis(vis_body_feats)
             ir_body_feats = self.neck_ir(ir_body_feats)
 
+        if self.training and self.aux_o2m_enabled:
+            if len(vis_body_feats) != 3 or len(ir_body_feats) != 3:
+                raise ValueError('E6a auxiliary heads require P3/P4/P5.')
+            vis_channels = [feature.shape[1] for feature in vis_body_feats]
+            ir_channels = [feature.shape[1] for feature in ir_body_feats]
+            if vis_channels != [256, 256, 256] or \
+                    ir_channels != [256, 256, 256]:
+                raise ValueError(
+                    'E6a HybridEncoder channels must be [256, 256, 256].')
+
         pad_mask = self.inputs.get('pad_mask', None)
 
         out_transformer = self.transformer(None,vis_body_feats, ir_body_feats, pad_mask, self.inputs)
@@ -132,10 +169,27 @@ class DAMSDet(BaseArch):
         if self.training:
             detr_losses = self.detr_head(out_transformer, None,
                                          self.inputs)
-            detr_losses.update({
-                'loss': paddle.add_n(
-                    [v for k, v in detr_losses.items() if 'log' not in k])
-            })
+            dino_total = paddle.add_n(
+                [v for k, v in detr_losses.items() if 'log' not in k])
+            detr_losses['loss'] = dino_total
+            if self.aux_o2m_enabled:
+                aux_vis = self.aux_o2m_head_vis(vis_body_feats, self.inputs)
+                aux_ir = self.aux_o2m_head_ir(ir_body_feats, self.inputs)
+                aux_mean = (aux_vis['loss'] + aux_ir['loss']) * 0.5
+                detr_losses['loss'] = (
+                    dino_total + self.aux_o2m_weight * aux_mean)
+                detr_losses.update({
+                    'dino_total': dino_total,
+                    'aux_vis_total': aux_vis['loss'],
+                    'aux_ir_total': aux_ir['loss'],
+                    'aux_mean': aux_mean,
+                    'aux_vis_cls': aux_vis['loss_cls'],
+                    'aux_vis_iou': aux_vis['loss_iou'],
+                    'aux_vis_dfl': aux_vis['loss_dfl'],
+                    'aux_ir_cls': aux_ir['loss_cls'],
+                    'aux_ir_iou': aux_ir['loss_iou'],
+                    'aux_ir_dfl': aux_ir['loss_dfl']
+                })
             return detr_losses
         else:
             preds = self.detr_head(out_transformer, None)
