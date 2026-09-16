@@ -136,17 +136,53 @@ def synchronize():
         paddle.device.cuda.synchronize()
 
 
+def assert_aux_construction(model, enabled, label):
+    actual_enabled = bool(model.aux_o2m_enabled)
+    vis_head = model.aux_o2m_head_vis
+    ir_head = model.aux_o2m_head_ir
+    if enabled:
+        if not actual_enabled or vis_head is None or ir_head is None:
+            raise AssertionError(
+                '{} must construct two enabled auxiliary heads.'.format(label))
+        if vis_head is ir_head:
+            raise AssertionError(
+                '{} auxiliary heads share one Layer instance.'.format(label))
+    elif actual_enabled or vis_head is not None or ir_head is not None:
+        raise AssertionError(
+            '{} retained auxiliary state: enabled={}, vis={}, ir={}'.format(
+                label, actual_enabled,
+                type(vis_head).__name__ if vis_head is not None else None,
+                type(ir_head).__name__ if ir_head is not None else None))
+
+
 def build_trainer(config_path, mode, aux_enabled=None,
                   tiny_annotation=None, amp=False):
+    config_path = Path(config_path).resolve()
     cfg = load_config(str(config_path))
-    if aux_enabled is not None:
-        cfg.DAMSDet['aux_o2m_enabled'] = bool(aux_enabled)
+    is_e1 = config_path == E1_CONFIG.resolve()
+    if is_e1 and aux_enabled not in (None, False):
+        raise AssertionError('E1 cannot enable E6a auxiliary heads.')
+    effective_aux_enabled = (
+        False if is_e1 else
+        bool(cfg.DAMSDet.get('aux_o2m_enabled', False))
+        if aux_enabled is None else bool(aux_enabled))
+    cfg.DAMSDet['aux_o2m_enabled'] = effective_aux_enabled
+    if not effective_aux_enabled:
+        # load_config() merges into a process-global configuration. E1 does not
+        # mention these E6a-only fields, so explicitly remove both references
+        # after every load instead of allowing a prior E6a build to leak in.
+        cfg.DAMSDet['aux_o2m_head_vis'] = None
+        cfg.DAMSDet['aux_o2m_head_ir'] = None
     if tiny_annotation is not None:
         cfg.TrainDataset['anno_path'] = str(tiny_annotation)
         cfg.TrainReader['shuffle'] = False
     cfg['amp'] = bool(amp)
     cfg['worker_num'] = 0
-    return Trainer(cfg, mode=mode)
+    trainer = Trainer(cfg, mode=mode)
+    assert_aux_construction(
+        trainer.model, effective_aux_enabled,
+        '{} ({})'.format(config_path.name, mode))
+    return trainer
 
 
 def load_e1_into_e6(model, checkpoint):
@@ -528,7 +564,7 @@ def run(args):
 
     result = {'all_passed': False, 'environment': {
         'paddle': paddle.__version__, 'cuda': True}, 'checks': {}}
-    e1_eval = build_trainer(E1_CONFIG, 'eval')
+    e1_eval = build_trainer(E1_CONFIG, 'eval', aux_enabled=False)
     e6_eval = build_trainer(E6_CONFIG, 'eval', aux_enabled=True)
     load_weight(e1_eval.model, str(e1_checkpoint))
     result['checks']['e1_checkpoint_loading'] = load_e1_into_e6(
@@ -556,10 +592,17 @@ def run(args):
     if result['checks']['eval_latency_seconds']['relative_delta'] > 0.15:
         raise AssertionError('E6a eval latency is more than 15% above E1.')
 
-    e1_train = build_trainer(E1_CONFIG, 'train')
+    e1_train = build_trainer(E1_CONFIG, 'train', aux_enabled=False)
     e6_disabled = build_trainer(E6_CONFIG, 'train', aux_enabled=False)
     load_weight(e1_train.model, str(e1_checkpoint))
     load_weight(e6_disabled.model, str(e1_checkpoint))
+    result['checks']['config_isolation'] = {
+        'sequence': ['E1 eval disabled', 'E6a eval enabled',
+                     'E1 train disabled', 'E6a train disabled'],
+        'e1_eval_no_aux': True,
+        'e1_train_after_e6_no_aux': True,
+        'e6_disabled_no_aux': True,
+        'strict_e1_checkpoint_load': True}
     regression_batch = next(iter(e1_train.loader))
     regression_batch['epoch_id'] = 0
     result['checks']['aux_disabled_regression'] = compare_train_losses(

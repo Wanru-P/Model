@@ -60,6 +60,24 @@ main path, loss, assigners, reader, and all E6a hyperparameters are unchanged.
 Both construction calls remain separate. Dynamic acceptance now fails unless
 the resulting Layers and every parameter object are disjoint.
 
+The second cloud acceptance attempt exposed process-global configuration
+contamination in the acceptance harness. `load_config()` recursively merges
+into `workspace.global_config`; absent E1 keys therefore did not remove the
+E6a-only auxiliary fields left by an earlier E6a load. This incorrectly made
+the later E1 training model contain 110 auxiliary parameters and the strict E1
+checkpoint loader correctly rejected it. The harness now forces E1 and every
+aux-disabled build to set the enable flag to false and both head references to
+`None` before Trainer construction, then asserts the resulting model state.
+The real E1-eval → E6a-eval → E1-train sequence and strict checkpoint loading
+are retained as a regression. No checkpoint mismatch is ignored. Current
+verdict remains **NOT READY** until the next complete cloud acceptance passes.
+The focused regression test passed locally with the real E1 epoch-39
+checkpoint: two tests ran successfully, the E1 model constructed after E6a
+had auxiliary mode disabled with both head fields `None`, and the same strict
+`load_weight()` path accepted both that E1 model and the E6a aux-disabled
+model without unmatched keys. The complete GPU/data-dependent acceptance is
+still pending on the cloud environment.
+
 ## E Parameter count
 
 Pending cloud dynamic acceptance: E1 total, E6a total, VIS aux, IR aux.
