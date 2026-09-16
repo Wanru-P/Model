@@ -3615,12 +3615,18 @@ class NormalizeBox(BaseOperator):
 class Multi_NormalizeBox(BaseOperator):
     """Transform the bounding box's coornidates to [0,1]."""
 
-    def __init__(self):
+    def __init__(self, retain_origin_box=False):
         super(Multi_NormalizeBox, self).__init__()
+        self.retain_origin_box = bool(retain_origin_box)
 
     def apply(self, sample, context):
         vis_im = sample['vis_image']
         gt_bbox = sample['gt_bbox']
+        # E6a only: preserve the post-geometry, post-letterbox pixel-space
+        # XYXY target before the existing DINO normalization mutates gt_bbox.
+        if self.retain_origin_box:
+            sample['origin_gt_bbox'] = gt_bbox.copy()
+            sample['origin_gt_class'] = sample['gt_class'].copy()
         height, width, _ = vis_im.shape
         for i in range(gt_bbox.shape[0]):
             gt_bbox[i][0] = gt_bbox[i][0] / width

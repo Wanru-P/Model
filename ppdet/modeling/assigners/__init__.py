@@ -13,6 +13,8 @@
 # limitations under the License.
 
 from . import utils
+from . import atss_assigner
+from . import task_aligned_assigner
 
 # from . import atss_assigner
 # from . import simota_assigner
@@ -20,6 +22,8 @@ from . import utils
 
 
 from .utils import *
+from .atss_assigner import *
+from .task_aligned_assigner import *
 
 # from .atss_assigner import *
 # from .simota_assigner import *

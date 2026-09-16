@@ -1102,11 +1102,16 @@ class PadGT(BaseOperator):
                                 1 means bbox, 0 means no bbox.
     """
 
-    def __init__(self, return_gt_mask=True, pad_img=False, minimum_gtnum=0):
+    def __init__(self,
+                 return_gt_mask=True,
+                 pad_img=False,
+                 minimum_gtnum=0,
+                 only_origin_box=False):
         super(PadGT, self).__init__()
         self.return_gt_mask = return_gt_mask
         self.pad_img = pad_img
         self.minimum_gtnum = minimum_gtnum
+        self.only_origin_box = bool(only_origin_box)
 
     def _impad(self,
                img: np.ndarray,
@@ -1203,6 +1208,26 @@ class PadGT(BaseOperator):
         return (maxh, maxw)
 
     def __call__(self, samples, context=None):
+        if self.only_origin_box:
+            if not all('origin_gt_bbox' in s and 'origin_gt_class' in s
+                       for s in samples):
+                raise KeyError('PadGT(only_origin_box=True) requires '
+                               'origin_gt_bbox and origin_gt_class.')
+            num_max_boxes = max([len(s['origin_gt_bbox']) for s in samples])
+            num_max_boxes = max(self.minimum_gtnum, num_max_boxes)
+            for sample in samples:
+                num_gt = len(sample['origin_gt_bbox'])
+                sample['pad_origin_gt_mask'] = np.zeros(
+                    (num_max_boxes, 1), dtype=np.float32)
+                origin_class = np.zeros((num_max_boxes, 1), dtype=np.int32)
+                origin_bbox = np.zeros((num_max_boxes, 4), dtype=np.float32)
+                if num_gt > 0:
+                    origin_class[:num_gt] = sample['origin_gt_class']
+                    origin_bbox[:num_gt] = sample['origin_gt_bbox']
+                    sample['pad_origin_gt_mask'][:num_gt] = 1.
+                sample['origin_gt_class'] = origin_class
+                sample['origin_gt_bbox'] = origin_bbox
+            return samples
         num_max_boxes = max([len(s['gt_bbox']) for s in samples])
         num_max_boxes = max(self.minimum_gtnum, num_max_boxes)
         if self.pad_img:
