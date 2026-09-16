@@ -20,6 +20,7 @@ export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 export PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 export PYTHONUNBUFFERED=1
 export PYTHONUTF8=1
+export OMP_NUM_THREADS=1
 
 CONFIG="configs/damsdet/damsdet_r50vd_aic2026_e1_rgbir_960_letterbox.yml"
 LOG_DIR="output/E1_RGBIR_DAMSDet_960_letterbox/logs"

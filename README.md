@@ -49,6 +49,8 @@ python scripts/check_e1_ready.py
 
 只有看到 `Cloud E1 readiness check passed` 后才开始正式训练。
 
+脚本会固定 `OMP_NUM_THREADS=1`。AutoDL 默认值可能是 16，Paddle 会对此发出警告；它与数据缺失不是同一个问题。
+
 ## 4. 正式训练 E1
 
 ```bash
@@ -94,3 +96,20 @@ bash scripts/eval_e1.sh \
 ## 7. 实验解释注意事项
 
 现有 E0 实际使用 `keep_ratio: false` 的 640 方形拉伸，而本 E1 按要求使用 960 letterbox。因此 E0→E1 同时改变了分辨率和 resize 几何策略。当前实验仍可判断这一整套高分辨率 letterbox 方案是否涨分，但不能把全部增益严格归因于分辨率；如果需要纯因果消融，应补跑 640-letterbox 对照。
+
+## 8. 只读诊断：padding Top-300 与提交 Top-100
+
+以下两个命令不训练、不改 production code；每个命令只对固定的 400-val 做一次 `model.eval()` 推理。必须传入 E1 正式 56 分对应的 best checkpoint：
+
+```bash
+bash scripts/run_e1_padding_diagnostic.sh /path/to/e1_best.pdparams
+bash scripts/run_e1_submission_diagnostic.sh /path/to/e1_best.pdparams
+```
+
+第一个命令输出 `output/diagnostics/e1_padding/`，包括逐图 Top-300 padding CSV、六层 memory 来源统计和 encoder score 对比。第二个命令输出 `output/diagnostics/e1_submission/`，包括 raw decoder query、production Stage-2 prediction dump、Top-100 saturation、duplicate、rank 101--300 lost TP、每类 occupancy 与 36 组以内离线 confidence/NMS sweep。两项都完成后自动生成：
+
+```text
+output/diagnostics/E1_DIAGNOSTIC_REPORT.md
+```
+
+离线 sweep 仅用于决定后续是否值得做提交后处理实验，不会自动修改提交参数或训练配置。

@@ -3,9 +3,15 @@
 
 import importlib
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
+
+
+# AutoDL images often export 16 here. Set the single-GPU-safe value before
+# Paddle is imported so the environment check itself stays warning-free.
+os.environ["OMP_NUM_THREADS"] = "1"
 
 
 ROOT = Path(__file__).resolve().parents[1]
