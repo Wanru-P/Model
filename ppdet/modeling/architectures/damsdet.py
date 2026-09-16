@@ -87,18 +87,6 @@ class DAMSDet(BaseArch):
         kwargs = {'input_shape': backbone_vis.out_shape}
         neck_vis = create(cfg['neck_vis'], **kwargs) if cfg['neck_vis'] else None
         neck_ir = create(cfg['neck_ir'], **kwargs) if cfg['neck_ir'] else None
-        aux_o2m_enabled = bool(cfg.get('aux_o2m_enabled', False))
-        aux_o2m_head_vis = None
-        aux_o2m_head_ir = None
-        if aux_o2m_enabled:
-            if neck_vis is None or neck_ir is None:
-                raise ValueError(
-                    'E6a auxiliary heads require both HybridEncoders.')
-            aux_o2m_head_vis = create(
-                cfg['aux_o2m_head_vis'], input_shape=neck_vis.out_shape)
-            aux_o2m_head_ir = create(
-                cfg['aux_o2m_head_ir'], input_shape=neck_ir.out_shape)
-
         # transformer
         if neck_vis is not None:
             kwargs = {'input_shape': neck_vis.out_shape}
@@ -110,6 +98,21 @@ class DAMSDet(BaseArch):
             'input_shape': backbone_vis.out_shape
         }
         detr_head = create(cfg['detr_head'], **kwargs)
+
+        # Match official RT-DETRv3 construction order: auxiliary heads are
+        # instantiated only after the complete DETR main path. This preserves
+        # E1 RNG initialization for main-path tensors that COCO does not load.
+        aux_o2m_enabled = bool(cfg.get('aux_o2m_enabled', False))
+        aux_o2m_head_vis = None
+        aux_o2m_head_ir = None
+        if aux_o2m_enabled:
+            if neck_vis is None or neck_ir is None:
+                raise ValueError(
+                    'E6a auxiliary heads require both HybridEncoders.')
+            aux_o2m_head_vis = create(
+                cfg['aux_o2m_head_vis'], input_shape=neck_vis.out_shape)
+            aux_o2m_head_ir = create(
+                cfg['aux_o2m_head_ir'], input_shape=neck_ir.out_shape)
 
         return {
             'backbone_vis': backbone_vis,

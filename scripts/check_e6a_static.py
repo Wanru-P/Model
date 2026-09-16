@@ -54,6 +54,11 @@ def main():
             raise AssertionError('E6a reader lacks: ' + text)
     if 'detach()' in architecture[architecture.index('if self.training and self.aux_o2m_enabled:'):]:
         raise AssertionError('Auxiliary feature path must not detach.')
+    main_head_create = architecture.index("detr_head = create(cfg['detr_head']")
+    aux_head_create = architecture.index('aux_o2m_head_vis = create(')
+    if main_head_create >= aux_head_create:
+        raise AssertionError(
+            'Auxiliary heads must be constructed after the DETR main path.')
     for relative in ('tools/e6a_sol_acceptance.py',
                      'scripts/check_e6a_ready.py'):
         tree = ast.parse((ROOT / relative).read_text(encoding='utf-8'))

@@ -78,6 +78,29 @@ had auxiliary mode disabled with both head fields `None`, and the same strict
 model without unmatched keys. The complete GPU/data-dependent acceptance is
 still pending on the cloud environment.
 
+The third cloud acceptance attempt showed that the harness's absolute COCO
+coverage rule was stricter than formal E1 training. E1 uses train-mode
+`checkpoint_mode='multi'`; class-count and cross-attention shape mismatches are
+logged and those tensors retain their model initialization. It also exposed a
+more important single-variable risk: E6a originally instantiated its random
+auxiliary heads before the Transformer, which could shift RNG initialization
+of exactly those main-path tensors that COCO leaves unmatched. DAMSDet now
+follows official RT-DETRv3 construction order: the complete backbone/depth/
+neck/Transformer/DINO main path is constructed before the independent VIS and
+IR auxiliary heads. Forward, loss, reader, assigners, workspace, E1 config,
+and all E6a hyperparameters are unchanged.
+
+COCO acceptance is now baseline-relative. With the same seed it requires E1
+and E6a shared-main key, shape, dtype, and value parity before pretraining with
+exact `max_abs_diff == 0`; it compares their real `multi_match_state_dict`
+matched and unmatched main-key sets; it then loads the same COCO checkpoint
+through each train-mode Trainer and again requires exact shared-main equality.
+No missing-key whitelist is hardcoded. Local regression with the real COCO
+checkpoint passed all three tests: before-pretrain exact equality, after-
+pretrain exact equality, matched/unmatched set parity, and independent scratch
+initialization of both auxiliary heads. The full cloud acceptance remains
+pending, so the verdict is still **NOT READY**.
+
 ## E Parameter count
 
 Pending cloud dynamic acceptance: E1 total, E6a total, VIS aux, IR aux.

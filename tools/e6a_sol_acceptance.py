@@ -20,7 +20,7 @@ import paddle.nn as nn
 from ppdet.core.workspace import load_config
 from ppdet.engine import Trainer
 from ppdet.utils.checkpoint import (
-    load_pretrain_weight, load_weight, multi_match_state_dict)
+    load_weight, multi_match_state_dict)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,6 +33,7 @@ CLASS_NAMES = [
     'light', 'garbage_can', 'uav', 'tricycle'
 ]
 TINY_CLASS_IDS = {0, 4, 7, 10}
+AUX_PREFIXES = ('aux_o2m_head_vis.', 'aux_o2m_head_ir.')
 
 
 class ForwardCapture(object):
@@ -216,26 +217,107 @@ def load_e1_into_e6(model, checkpoint):
     }
 
 
-def inspect_pretrain_loading(model, checkpoint):
-    source = paddle.load(str(checkpoint))
-    target = model.state_dict()
-    matched = multi_match_state_dict(target, source, mode='multi')
-    trainable = {name for name, _ in model.named_parameters()}
-    missing_main = sorted(name for name in trainable if name not in matched and
-                          not name.startswith(('aux_o2m_head_vis.', 'aux_o2m_head_ir.')))
-    missing_vis = sorted(name for name in trainable if name.startswith(
-        'aux_o2m_head_vis.') and name not in matched)
-    missing_ir = sorted(name for name in trainable if name.startswith(
-        'aux_o2m_head_ir.') and name not in matched)
-    if missing_main:
-        raise AssertionError('COCO pretrain misses main-path trainable keys: {}'.format(
-            missing_main[:20]))
+def split_main_and_aux_keys(state_dict):
+    all_keys = set(state_dict)
+    aux_keys = {name for name in all_keys if name.startswith(AUX_PREFIXES)}
+    return all_keys - aux_keys, aux_keys
+
+
+def compare_shared_main_state(e1_model, e6_model, stage):
+    e1_state = e1_model.state_dict()
+    e6_state = e6_model.state_dict()
+    e1_main, e1_aux = split_main_and_aux_keys(e1_state)
+    e6_main, e6_aux = split_main_and_aux_keys(e6_state)
+    if e1_aux:
+        raise AssertionError('E1 unexpectedly contains auxiliary state.')
+    if e1_main != e6_main:
+        raise AssertionError({
+            'stage': stage,
+            'missing_from_e6a': sorted(e1_main - e6_main),
+            'extra_in_e6a_main': sorted(e6_main - e1_main)})
+    shape_mismatch = []
+    dtype_mismatch = []
+    value_mismatch = []
+    for name in sorted(e1_main):
+        left = e1_state[name]
+        right = e6_state[name]
+        if list(left.shape) != list(right.shape):
+            shape_mismatch.append(name)
+            continue
+        if left.dtype != right.dtype:
+            dtype_mismatch.append(name)
+            continue
+        if not bool(paddle.equal_all(left, right).numpy().item()):
+            value_mismatch.append({
+                'name': name, 'max_abs_diff': max_abs_diff(left, right)})
+    if shape_mismatch or dtype_mismatch or value_mismatch:
+        raise AssertionError({
+            'stage': stage,
+            'shape_mismatch': shape_mismatch,
+            'dtype_mismatch': dtype_mismatch,
+            'value_mismatch': value_mismatch[:20]})
     return {
-        'loaded': len(matched),
-        'missing_main': missing_main,
-        'missing_aux_vis': missing_vis,
-        'missing_aux_ir': missing_ir,
-        'source_keys_not_directly_matched': sorted(set(source) - set(matched))
+        'stage': stage,
+        'shared_main_keys': len(e1_main),
+        'e6a_aux_keys': len(e6_aux),
+        'max_abs_diff': 0.0,
+        'exact_equal': True}
+
+
+def inspect_pretrain_loading(e1_trainer, e6_trainer, checkpoint):
+    if e1_trainer.checkpoint_mode != 'multi' or \
+            e6_trainer.checkpoint_mode != 'multi':
+        raise AssertionError('COCO parity must use Trainer train-mode multi loading.')
+    before = compare_shared_main_state(
+        e1_trainer.model, e6_trainer.model, 'before_coco_pretrain')
+    source = paddle.load(str(checkpoint))
+    e1_state = e1_trainer.model.state_dict()
+    e6_state = e6_trainer.model.state_dict()
+    e1_main, _ = split_main_and_aux_keys(e1_state)
+    e6_main, e6_aux = split_main_and_aux_keys(e6_state)
+    e1_matched = set(multi_match_state_dict(
+        e1_state, source, mode='multi'))
+    e6_matched = set(multi_match_state_dict(
+        e6_state, source, mode='multi'))
+    e1_matched_main = e1_matched & e1_main
+    e6_matched_main = e6_matched & e6_main
+    e1_unmatched_main = e1_main - e1_matched_main
+    e6_unmatched_main = e6_main - e6_matched_main
+    e6_matched_aux = e6_matched & e6_aux
+    if e6_matched_main != e1_matched_main:
+        raise AssertionError({
+            'e6a_missing_relative_to_e1': sorted(
+                e1_matched_main - e6_matched_main),
+            'e6a_extra_matches_relative_to_e1': sorted(
+                e6_matched_main - e1_matched_main)})
+    if e6_unmatched_main != e1_unmatched_main:
+        raise AssertionError({
+            'e1_unmatched_only': sorted(e1_unmatched_main - e6_unmatched_main),
+            'e6a_unmatched_only': sorted(e6_unmatched_main - e1_unmatched_main)})
+    if e6_matched_aux:
+        raise AssertionError(
+            'E6a auxiliary tensors unexpectedly matched COCO: {}'.format(
+                sorted(e6_matched_aux)))
+
+    # Exercise the exact formal-training path, including Trainer's `multi`
+    # checkpoint mode. Unmatched tensors retain their same-seed initialization.
+    e1_trainer.load_weights(str(checkpoint))
+    e6_trainer.load_weights(str(checkpoint))
+    after = compare_shared_main_state(
+        e1_trainer.model, e6_trainer.model, 'after_coco_pretrain')
+    return {
+        'before_pretrain_main_state': before,
+        'after_pretrain_main_state': after,
+        'e1_matched_main_keys': sorted(e1_matched_main),
+        'e1_unmatched_main_keys': sorted(e1_unmatched_main),
+        'e6a_matched_shared_main_keys': sorted(e6_matched_main),
+        'e6a_unmatched_shared_main_keys': sorted(e6_unmatched_main),
+        'matched_main_set_equal': True,
+        'unmatched_main_set_equal': True,
+        'aux_vis_initialized_from_scratch': not any(
+            name.startswith('aux_o2m_head_vis.') for name in e6_matched),
+        'aux_ir_initialized_from_scratch': not any(
+            name.startswith('aux_o2m_head_ir.') for name in e6_matched)
     }
 
 
@@ -432,9 +514,10 @@ def optimizer_step(trainer, batch, scaler, epoch_id):
 
 
 def load_coco_start(trainer, checkpoint):
-    loading = inspect_pretrain_loading(trainer.model, checkpoint)
-    load_pretrain_weight(trainer.model, str(checkpoint), mode='multi')
-    return loading
+    if trainer.checkpoint_mode != 'multi':
+        raise AssertionError('Formal COCO initialization requires multi mode.')
+    trainer.load_weights(str(checkpoint))
+    return {'loader': 'Trainer.load_weights', 'checkpoint_mode': 'multi'}
 
 
 def validate_tiny_annotation(tiny_path):
@@ -591,6 +674,7 @@ def run(args):
         'relative_delta': (e6_latency - e1_latency) / e1_latency}
     if result['checks']['eval_latency_seconds']['relative_delta'] > 0.15:
         raise AssertionError('E6a eval latency is more than 15% above E1.')
+    del e1_eval, e6_eval
 
     e1_train = build_trainer(E1_CONFIG, 'train', aux_enabled=False)
     e6_disabled = build_trainer(E6_CONFIG, 'train', aux_enabled=False)
@@ -607,10 +691,17 @@ def run(args):
     regression_batch['epoch_id'] = 0
     result['checks']['aux_disabled_regression'] = compare_train_losses(
         e1_train.model, e6_disabled.model, regression_batch)
+    del e1_train, e6_disabled
 
-    train_model = build_trainer(E6_CONFIG, 'train', amp=True)
-    result['checks']['coco_weight_loading'] = load_coco_start(
-        train_model, coco_checkpoint)
+    seed_all()
+    e1_coco = build_trainer(
+        E1_CONFIG, 'train', aux_enabled=False, amp=True)
+    seed_all()
+    train_model = build_trainer(
+        E6_CONFIG, 'train', aux_enabled=True, amp=True)
+    result['checks']['coco_pretrain_parity'] = inspect_pretrain_loading(
+        e1_coco, train_model, coco_checkpoint)
+    del e1_coco
     train_model.model.train()
     probes = install_assigner_probes(train_model.model)
     train_vis_calls = CallCounter()
