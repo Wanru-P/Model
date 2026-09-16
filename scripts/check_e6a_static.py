@@ -35,12 +35,19 @@ def main():
     architecture = (ROOT / 'ppdet/modeling/architectures/damsdet.py').read_text(
         encoding='utf-8')
     required_config = (
-        'aux_o2m_weight: 1.0', 'static_assigner_epoch: 30',
+        'aux_o2m_weight: 1.0',
+        'aux_o2m_head_vis: PPYOLOEHead',
+        'aux_o2m_head_ir: PPYOLOEHead', 'PPYOLOEHead:',
+        'static_assigner_epoch: 30',
         'fpn_strides: [8, 16, 32]', 'topk: 9', 'topk: 13',
         'alpha: 1.0', 'beta: 6.0')
     for text in required_config:
         if text not in config:
             raise AssertionError('E6a config lacks: ' + text)
+    if config.count('\nPPYOLOEHead:\n') != 1:
+        raise AssertionError('E6a requires one top-level PPYOLOEHead recipe.')
+    if 'aux_o2m_head_vis:\n' in config or 'aux_o2m_head_ir:\n' in config:
+        raise AssertionError('Aux head references must be class-name strings, not mappings.')
     for text in ('Multi_PreserveOriginGT: {}', 'Multi_NormalizeBox: {}',
                  'BboxXYXY2XYWH: {}', 'PadOriginGT: {}'):
         if text not in reader:

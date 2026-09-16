@@ -15,6 +15,11 @@ class E6aModelContractTest(unittest.TestCase):
         vis = model.aux_o2m_head_vis
         ir = model.aux_o2m_head_ir
         self.assertIsNot(vis, ir)
+        vis_parameter_ids = {id(parameter) for parameter in vis.parameters()}
+        ir_parameter_ids = {id(parameter) for parameter in ir.parameters()}
+        self.assertTrue(vis_parameter_ids)
+        self.assertTrue(ir_parameter_ids)
+        self.assertTrue(vis_parameter_ids.isdisjoint(ir_parameter_ids))
         self.assertEqual(vis.in_channels, [256, 256, 256])
         self.assertEqual(ir.in_channels, [256, 256, 256])
         self.assertEqual(list(vis.fpn_strides), [8, 16, 32])

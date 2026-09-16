@@ -50,6 +50,16 @@ PPYOLOE head. IR follows the same layout with a separate PPYOLOE head. The DAMS
 transformer and DINO head remain the E1 implementation. Auxiliary heads run
 only while `self.training` is true.
 
+The first cloud construction attempt exposed a configuration-wiring defect:
+the two `aux_o2m_head_*` entries were mappings, while this repository's
+`workspace.create()` accepts only a class or class-name string. The repair
+follows official RT-DETRv3 configuration at upstream commit `b25522a`: both
+DAMSDet entries now reference `PPYOLOEHead` by name and one top-level
+`PPYOLOEHead` block owns the unchanged recipe. `workspace.create()`, DAMSDet's
+main path, loss, assigners, reader, and all E6a hyperparameters are unchanged.
+Both construction calls remain separate. Dynamic acceptance now fails unless
+the resulting Layers and every parameter object are disjoint.
+
 ## E Parameter count
 
 Pending cloud dynamic acceptance: E1 total, E6a total, VIS aux, IR aux.

@@ -74,6 +74,16 @@ def main():
         raise AssertionError('static_assigner_epoch must be 30.')
     if model.aux_o2m_head_ir.static_assigner_epoch != 30:
         raise AssertionError('static_assigner_epoch must be 30.')
+    if model.aux_o2m_head_vis is model.aux_o2m_head_ir:
+        raise AssertionError('VIS and IR auxiliary heads must be distinct Layers.')
+    vis_parameter_ids = {
+        id(parameter) for parameter in model.aux_o2m_head_vis.parameters()}
+    ir_parameter_ids = {
+        id(parameter) for parameter in model.aux_o2m_head_ir.parameters()}
+    if not vis_parameter_ids or not ir_parameter_ids:
+        raise AssertionError('An auxiliary head has no parameters.')
+    if not vis_parameter_ids.isdisjoint(ir_parameter_ids):
+        raise AssertionError('VIS and IR auxiliary parameters must not be shared.')
 
     acceptance_path = ROOT / args.acceptance_json
     if not acceptance_path.is_file():

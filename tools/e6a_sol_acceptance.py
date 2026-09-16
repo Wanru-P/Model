@@ -302,6 +302,16 @@ def check_gt_batch(batch):
 
 
 def parameter_counts(e1_model, e6_model):
+    if e6_model.aux_o2m_head_vis is e6_model.aux_o2m_head_ir:
+        raise AssertionError('VIS and IR auxiliary heads share one Layer instance.')
+    vis_parameter_ids = {
+        id(parameter) for parameter in e6_model.aux_o2m_head_vis.parameters()}
+    ir_parameter_ids = {
+        id(parameter) for parameter in e6_model.aux_o2m_head_ir.parameters()}
+    if not vis_parameter_ids or not ir_parameter_ids:
+        raise AssertionError('An auxiliary head has no parameters.')
+    if not vis_parameter_ids.isdisjoint(ir_parameter_ids):
+        raise AssertionError('VIS and IR auxiliary heads share parameters.')
     e1_total = sum(int(parameter.numel()) for parameter in e1_model.parameters())
     e6_total = sum(int(parameter.numel()) for parameter in e6_model.parameters())
     vis = sum(int(parameter.numel()) for parameter in
@@ -310,7 +320,13 @@ def parameter_counts(e1_model, e6_model):
              e6_model.aux_o2m_head_ir.parameters())
     if e6_total - e1_total != vis + ir:
         raise AssertionError('Unexpected parameter delta.')
-    return {'e1': e1_total, 'e6a': e6_total, 'aux_vis': vis, 'aux_ir': ir}
+    return {
+        'e1': e1_total,
+        'e6a': e6_total,
+        'aux_vis': vis,
+        'aux_ir': ir,
+        'distinct_layer_instances': True,
+        'disjoint_parameter_objects': True}
 
 
 def install_assigner_probes(model):
